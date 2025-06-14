@@ -1,0 +1,223 @@
+Vyber ty poradatele, kteri poradaji zapas pouze v Křídlový palác.:
+
+SQL: 
+select poradatel.*
+from poradatel join zapas on poradatel.id_poradatel=zapas.id_poradatel
+where misto  = 'Křídlový palác'
+
+except
+
+select poradatel.*
+from poradatel join zapas on poradatel.id_poradatel=zapas.id_poradatel
+where misto  != 'Křídlový palác';
+
+
+Vyber ty vsazejici, kteri vsadili na vsechny typy sazek.:
+
+SQL:
+select*
+from vsazejici o where not exists(
+    select *
+    from typ_sazky z where not exists(
+        select o
+        from sazka k 
+        where k.id_vsazejici=o.id_vsazejici and k.id_typ_sazky = z.id_typ_sazky
+    )
+);
+
+
+Vypis vsechny kohouty a jejich vlastniky.:
+
+SQL:
+select distinct prezdivka, kontakt, jmeno, vek , body
+from vlastnik join kohout on vlastnik.id_vlastnik = kohout.id_vlastnik;
+
+
+vypis vsechny vlastniky kteri nejsou ve skutecnosti v tuto chvili vlastnici (co nemaji kohouty).:
+
+SQL:
+1)
+select *
+from vlastnik
+where not exists (
+    select 1 from kohout
+    where kohout.id_vlastnik = vlastnik.id_vlastnik
+);
+
+1)
+select vlastnik.*
+from vlastnik
+where id_vlastnik not in (
+    select kohout.id_vlastnik from kohout
+);
+
+3)
+select vlastnik.*
+from vlastnik
+except
+select vlastnik.*
+from vlastnik join kohout using(id_vlastnik);
+
+
+Pro kazdy typ sazky vypis kolik bylo celkem prosazeno.Ber pouze sazky vetsi nez 100 korun a celkove vypis
+jen ty sazky, kde bylo dohromady prosazeno vice nez 18000 korun a serad to sestupne.:
+
+SQL:
+select typ_sazky.nazev, sum(velikost_sazky) as celkem_prosazeno
+from sazka join typ_sazky using(id_typ_sazky)
+where velikost_sazky >= 100
+group by nazev
+having sum(velikost_sazky)> 18000
+order by celkem_prosazeno desc;
+
+
+Vypis kohouty, kteri maji postizeni a zaroven jsou slechteny.:
+
+SQL:
+select jmeno
+from kohout natural join slechetnost
+intersect
+select jmeno
+from kohout natural join postizeni
+
+
+Vypis kohouty, kteri maji postizeni a nebo jsou slechteny.:
+
+SQL:
+select jmeno
+from kohout natural join slechetnost
+union
+select jmeno
+from kohout natural join postizeni
+
+
+Vytvor pohled Mistrovskych zapasu, ktere se odehravaji vzdy v Tajne arena, Kralovske arene a nebo v Kridlovem palaci.:
+
+SQL:
+create or replace view Mistrovske_zapasy as
+select *
+from zapas
+where misto = 'Tajná aréna' or misto = 'Královská aréna'or misto = 'Křídlový palác'
+;
+
+
+Vytvor pohled zapasy zkusenych, kteri jsou starsi nez 3 roky. A z toho vypis zapasy bodovany vice nez 100 bodu a serad to podle casu sestupne.:
+
+SQL: 
+create or replace view Zapasy_zkusenych as
+select id_kola,
+       k1.jmeno as prvni_kohout,
+       k2.jmeno as druhy_kohout,
+       zapas_kola.body, delka_kola
+from zapas_kola 
+join kohout as k1 on zapas_kola.id_kohouta = k1.id_kohouta 
+join kohout as k2 on zapas_kola.kohout_id_kohouta = k2.id_kohouta
+where k1.vek > 3 and k2.vek > 3;
+
+select *
+from Zapasy_zkusenych
+where Zapasy_zkusenych.body > 100
+order by delka_kola asc;
+
+
+Najdi kolik kohoutu ma konkretni vek a serad to podle veku sestupne.:
+select vek, count(*) as pocet_kohoutu
+from kohout
+group by vek
+order by vek desc
+
+
+Ukaz vsechny vlastniky kteri nemaji zadneho kohouta ktery by nemel zadnou vadu.:
+
+SQL:
+select vlastnik.*
+from vlastnik
+where id_vlastnik not in (
+select kohout.id_vlastnik
+from kohout natural join postizeni
+)
+
+
+Vsichni co nemaji zadny proherni ticket ale uz vsadili.:
+select distinct v.*
+from (
+    select vsazejici.*
+    from vsazejici
+    except
+    select vsazejici.*
+    from vsazejici natural join sazka 
+    where vyhra_sazky = 0
+) as v
+natural join sazka;
+
+
+pridej novy zapas s aktualnim datem podle nejnovejsiho zapasu.:
+
+SQL:
+insert into zapas (id_zapas, id_poradatel, datum, misto)
+select 
+  (SELECT MAX(id_zapas) FROM zapas) + 1, 
+  id_poradatel, cast(now() as date) as datum, misto
+from zapas
+order by id_zapas desc
+limit 1;
+rollback;
+
+
+Uz ubehl rok od aktualizace veku databaze, tak potrebuji zvysit vek vsech kohout o 1.:
+
+SQL:
+begin;
+
+update kohout
+set vek = vek + 1
+where id_kohouta in (
+select distinct id_kohouta
+from kohout
+);
+
+rollback;
+
+
+Odstran vsechny vsazejici kteri jeste nic neutratili.:
+
+SQL:
+begin;
+
+delete from vsazejici where id_vsazejici in(
+    select id_vsazejici
+    from vsazejici
+    where penez_utraceno = 0
+);
+
+rollback;
+
+
+Vypis kolik kazdy vlastnik ma kohoutu. A vypis pouze prezdivku a jeho pocet kohoutu.:
+
+SQL:
+select prezdivka, ( select count(*)
+            from kohout 
+            where kohout.id_vlastnik = vlastnik.id_vlastnik
+          ) as pocet_kohoutu
+from vlastnik
+
+
+Secti pet vsazejicich kteri vsadilil nejvice.:
+
+SQL:
+select sum(penez_utraceno) as elita_utratila
+from (
+select *
+from vsazejici
+order by penez_utraceno desc
+limit 5
+)
+
+
+vypis vsechny prijmeni vsazejicich kterych jmeno zacina na 'P'.:
+
+SQL:
+select distinct prijmeni
+from vsazejici
+where jmeno LIKE 'P%';

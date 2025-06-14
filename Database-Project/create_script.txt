@@ -1,0 +1,157 @@
+-- odeberu pokud existuje funkce na oodebrání tabulek a sekvencí
+DROP FUNCTION IF EXISTS remove_all();
+
+-- vytvořím funkci která odebere tabulky a sekvence
+-- chcete také umět psát PLSQL? Zapište si předmět BI-SQL ;-)
+CREATE or replace FUNCTION remove_all() RETURNS void AS $$
+DECLARE
+    rec RECORD;
+    cmd text;
+BEGIN
+    cmd := '';
+
+    FOR rec IN SELECT
+            'DROP SEQUENCE ' || quote_ident(n.nspname) || '.'
+                || quote_ident(c.relname) || ' CASCADE;' AS name
+        FROM
+            pg_catalog.pg_class AS c
+        LEFT JOIN
+            pg_catalog.pg_namespace AS n
+        ON
+            n.oid = c.relnamespace
+        WHERE
+            relkind = 'S' AND
+            n.nspname NOT IN ('pg_catalog', 'pg_toast') AND
+            pg_catalog.pg_table_is_visible(c.oid)
+    LOOP
+        cmd := cmd || rec.name;
+    END LOOP;
+
+    FOR rec IN SELECT
+            'DROP TABLE ' || quote_ident(n.nspname) || '.'
+                || quote_ident(c.relname) || ' CASCADE;' AS name
+        FROM
+            pg_catalog.pg_class AS c
+        LEFT JOIN
+            pg_catalog.pg_namespace AS n
+        ON
+            n.oid = c.relnamespace WHERE relkind = 'r' AND
+            n.nspname NOT IN ('pg_catalog', 'pg_toast') AND
+            pg_catalog.pg_table_is_visible(c.oid)
+    LOOP
+        cmd := cmd || rec.name;
+    END LOOP;
+
+    EXECUTE cmd;
+    RETURN;
+END;
+$$ LANGUAGE plpgsql;
+-- zavolám funkci co odebere tabulky a sekvence - Mohl bych dropnout celé schéma a znovu jej vytvořit, použíjeme však PLSQL
+select remove_all();
+
+CREATE TABLE hodnost (
+    id_hodnost SERIAL NOT NULL,
+    hodnost VARCHAR(256) NOT NULL
+);
+ALTER TABLE hodnost ADD CONSTRAINT pk_hodnost PRIMARY KEY (id_hodnost);
+
+CREATE TABLE kohout (
+    id_kohouta SERIAL NOT NULL,
+    id_vlastnik INTEGER,
+    jmeno VARCHAR(256) NOT NULL,
+    vek INTEGER NOT NULL,
+    body INTEGER NOT NULL
+);
+ALTER TABLE kohout ADD CONSTRAINT pk_kohout PRIMARY KEY (id_kohouta);
+
+CREATE TABLE poradatel (
+    id_poradatel SERIAL NOT NULL,
+    cele_jmeno VARCHAR(256),
+    prezdivka VARCHAR(256) NOT NULL
+);
+ALTER TABLE poradatel ADD CONSTRAINT pk_poradatel PRIMARY KEY (id_poradatel);
+
+CREATE TABLE postizeni (
+    id_kohouta INTEGER NOT NULL,
+    vady VARCHAR(256) NOT NULL
+);
+ALTER TABLE postizeni ADD CONSTRAINT pk_postizeni PRIMARY KEY (id_kohouta);
+
+CREATE TABLE sazka (
+    id_sazky SERIAL NOT NULL,
+    id_vsazejici INTEGER NOT NULL,
+    id_kola INTEGER NOT NULL,
+    id_typ_sazky INTEGER NOT NULL,
+    velikost_sazky INTEGER NOT NULL,
+    vyhra_sazky INTEGER NOT NULL
+);
+ALTER TABLE sazka ADD CONSTRAINT pk_sazka PRIMARY KEY (id_sazky);
+
+CREATE TABLE slechetnost (
+    id_kohouta INTEGER NOT NULL,
+    rodic_samicka VARCHAR(256) NOT NULL,
+    rodic_samec VARCHAR(256) NOT NULL
+);
+ALTER TABLE slechetnost ADD CONSTRAINT pk_slechetnost PRIMARY KEY (id_kohouta);
+
+CREATE TABLE typ_sazky (
+    id_typ_sazky SERIAL NOT NULL,
+    nazev VARCHAR(256) NOT NULL
+);
+ALTER TABLE typ_sazky ADD CONSTRAINT pk_typ_sazky PRIMARY KEY (id_typ_sazky);
+
+CREATE TABLE vlastnik (
+    id_vlastnik SERIAL NOT NULL,
+    prezdivka VARCHAR(256) NOT NULL,
+    kontakt VARCHAR(256) NOT NULL
+);
+ALTER TABLE vlastnik ADD CONSTRAINT pk_vlastnik PRIMARY KEY (id_vlastnik);
+ALTER TABLE vlastnik ADD CONSTRAINT uc_vlastnik_prezdivka UNIQUE (prezdivka);
+
+CREATE TABLE vsazejici (
+    id_vsazejici SERIAL NOT NULL,
+    id_hodnost INTEGER,
+    penez_utraceno INTEGER NOT NULL,
+    jmeno VARCHAR(256) NOT NULL,
+    prijmeni VARCHAR(256) NOT NULL
+);
+ALTER TABLE vsazejici ADD CONSTRAINT pk_vsazejici PRIMARY KEY (id_vsazejici);
+
+CREATE TABLE zapas (
+    id_zapas SERIAL NOT NULL,
+    id_poradatel INTEGER NOT NULL,
+    datum DATE NOT NULL,
+    misto VARCHAR(256) NOT NULL
+);
+ALTER TABLE zapas ADD CONSTRAINT pk_zapas PRIMARY KEY (id_zapas);
+
+CREATE TABLE zapas_kola (
+    id_kola SERIAL NOT NULL,
+    id_kohouta INTEGER NOT NULL,
+    kohout_id_kohouta INTEGER NOT NULL,
+    id_zapas INTEGER NOT NULL,
+    umisteni SMALLINT NOT NULL,
+    body INTEGER NOT NULL,
+    delka_kola TIME NOT NULL
+);
+ALTER TABLE zapas_kola ADD CONSTRAINT pk_zapas_kola PRIMARY KEY (id_kola);
+
+ALTER TABLE kohout ADD CONSTRAINT fk_kohout_vlastnik FOREIGN KEY (id_vlastnik) REFERENCES vlastnik (id_vlastnik) ON DELETE CASCADE;
+
+ALTER TABLE postizeni ADD CONSTRAINT fk_postizeni_kohout FOREIGN KEY (id_kohouta) REFERENCES kohout (id_kohouta) ON DELETE CASCADE;
+
+ALTER TABLE sazka ADD CONSTRAINT fk_sazka_vsazejici FOREIGN KEY (id_vsazejici) REFERENCES vsazejici (id_vsazejici) ON DELETE CASCADE;
+ALTER TABLE sazka ADD CONSTRAINT fk_sazka_zapas_kola FOREIGN KEY (id_kola) REFERENCES zapas_kola (id_kola) ON DELETE CASCADE;
+ALTER TABLE sazka ADD CONSTRAINT fk_sazka_typ_sazky FOREIGN KEY (id_typ_sazky) REFERENCES typ_sazky (id_typ_sazky) ON DELETE CASCADE;
+
+ALTER TABLE slechetnost ADD CONSTRAINT fk_slechetnost_kohout FOREIGN KEY (id_kohouta) REFERENCES kohout (id_kohouta) ON DELETE CASCADE;
+
+ALTER TABLE vsazejici ADD CONSTRAINT fk_vsazejici_hodnost FOREIGN KEY (id_hodnost) REFERENCES hodnost (id_hodnost) ON DELETE CASCADE;
+
+ALTER TABLE zapas ADD CONSTRAINT fk_zapas_poradatel FOREIGN KEY (id_poradatel) REFERENCES poradatel (id_poradatel) ON DELETE CASCADE;
+
+ALTER TABLE zapas_kola ADD CONSTRAINT fk_zapas_kola_kohout FOREIGN KEY (id_kohouta) REFERENCES kohout (id_kohouta) ON DELETE CASCADE;
+ALTER TABLE zapas_kola ADD CONSTRAINT fk_zapas_kola_kohout_1 FOREIGN KEY (kohout_id_kohouta) REFERENCES kohout (id_kohouta) ON DELETE CASCADE;
+ALTER TABLE zapas_kola ADD CONSTRAINT fk_zapas_kola_zapas FOREIGN KEY (id_zapas) REFERENCES zapas (id_zapas) ON DELETE CASCADE;
+
+
